@@ -24,6 +24,7 @@ dependencies:
 - process
 - megaparsec >= 7
 - containers
+- async
 
 library:
   source-dirs: src

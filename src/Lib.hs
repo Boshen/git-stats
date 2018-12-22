@@ -1,6 +1,7 @@
 module Lib where
 
 import           Control.Applicative        (empty)
+import           Control.Concurrent.Async   (mapConcurrently)
 import           Control.Monad
 import qualified Data.Map.Strict            as Map
 import           Data.Void
@@ -25,19 +26,21 @@ dir = "."
 someFunc :: IO ()
 someFunc = do
   files <- readCreateProcess (shell "git ls-files") {cwd = Just dir} ""
-  names <-
-    forM (Prelude.lines files) $ \file -> do
-      blame <-
-        readCreateProcess
-          (shell $ "git blame --line-porcelain " ++ file) {cwd = Just dir}
-          ""
-      case parse (many blameParser) "" blame of
-        Left e -> do
-          print e
-          return Map.empty
-        Right blames ->
-          return $ Map.fromListWith (+) (map (\b -> (author b, 1)) blames)
+  blames <- mapConcurrently getBlame (Prelude.lines files)
+  let names = parseBlame <$> blames
   print $ Map.unionsWith (+) names
+
+getBlame :: String -> IO String
+getBlame file =
+  readCreateProcess
+    (shell $ "git blame --line-porcelain " ++ file) {cwd = Just dir}
+    ""
+
+parseBlame :: String -> Map.Map String Integer
+parseBlame blame =
+  case parse (many blameParser) "" blame of
+    Left e       -> Map.empty
+    Right blames -> Map.fromListWith (+) (map (\b -> (author b, 1)) blames)
 
 sc :: Parser ()
 sc = L.space space1 empty empty
