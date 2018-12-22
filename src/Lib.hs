@@ -21,20 +21,17 @@ data Blame = Blame
 
 type Parser = Parsec Void String
 
-dir = "."
-
-someFunc :: IO ()
-someFunc = do
-  files <- readCreateProcess (shell "git ls-files") {cwd = Just dir} ""
-  blames <- mapConcurrently getBlame (Prelude.lines files)
+countLines :: String -> IO ()
+countLines dir = do
+  files <- runCmd "git ls-files"
+  blames <-
+    mapConcurrently
+      (\file -> runCmd $ "git blame --line-porcelain " ++ file)
+      (Prelude.lines files)
   let names = parseBlame <$> blames
   print $ Map.unionsWith (+) names
-
-getBlame :: String -> IO String
-getBlame file =
-  readCreateProcess
-    (shell $ "git blame --line-porcelain " ++ file) {cwd = Just dir}
-    ""
+  where
+    runCmd cmd = readCreateProcess (shell cmd) {cwd = Just dir} ""
 
 parseBlame :: String -> Map.Map String Integer
 parseBlame blame =
