@@ -1,25 +1,31 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Lib where
 
-import           Control.Applicative        (empty)
-import           Control.Concurrent.Async   (mapConcurrently)
+import           Control.Applicative                       (empty)
+import           Control.Concurrent.Async                  (mapConcurrently)
 import           Control.Monad
-import qualified Data.Map.Strict            as Map
+import           Data.List                                 (sortOn)
+import qualified Data.Map.Strict                           as Map
+import           Data.Text                                 (Text)
+import qualified Data.Text                                 as T
+import           Data.Text.Prettyprint.Doc
+import           Data.Text.Prettyprint.Doc.Render.Terminal
 import           Data.Void
 import           System.Process
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
-import           Text.Megaparsec.Debug
+import qualified Text.Megaparsec.Char.Lexer                as L
 
 data Blame = Blame
-  { sha          :: String
+  { sha          :: Text
   , originalLine :: Int
   , finalLine    :: Int
-  , author       :: String
-  , filename     :: String
+  , author       :: Text
+  , filename     :: Text
   } deriving (Show)
 
-type Parser = Parsec Void String
+type Parser = Parsec Void Text
 
 countLines :: String -> IO ()
 countLines dir = do
@@ -28,16 +34,27 @@ countLines dir = do
     mapConcurrently
       (\file -> runCmd $ "git blame --line-porcelain " ++ file)
       (Prelude.lines files)
-  let names = parseBlame <$> blames
-  print $ Map.unionsWith (+) names
+  let names = Map.unionsWith (+) (map (parseBlame . T.pack) blames)
+  printBlames names
+  putStrLn "\n"
   where
     runCmd cmd = readCreateProcess (shell cmd) {cwd = Just dir} ""
 
-parseBlame :: String -> Map.Map String Integer
+parseBlame :: Text -> Map.Map Text Integer
 parseBlame blame =
   case parse (many blameParser) "" blame of
-    Left e       -> Map.empty
+    Left e       -> Map.empty -- TODO error handling
     Right blames -> Map.fromListWith (+) (map (\b -> (author b, 1)) blames)
+
+printBlames :: Map.Map Text Integer -> IO ()
+printBlames names =
+  putDoc . vcat . map f . reverse . sortOn snd $ Map.toList names
+  where
+    f (author, count) =
+      annotate
+        (color Yellow)
+        (pretty . T.justifyLeft 6 ' ' . T.pack $ show count) <+>
+      annotate (color Red) (pretty author)
 
 sc :: Parser ()
 sc = L.space space1 empty empty
@@ -86,7 +103,7 @@ blameParser
   line <- lexeme $ takeWhileP Nothing (/= '\n')
   return $
     Blame
-      { sha = sha
+      { sha = T.pack sha
       , originalLine = originalLine
       , finalLine = finalLine
       , author = author
