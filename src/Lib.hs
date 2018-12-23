@@ -47,14 +47,17 @@ parseBlame blame =
     Right blames -> Map.fromListWith (+) (map (\b -> (author b, 1)) blames)
 
 printBlames :: Map.Map Text Integer -> IO ()
-printBlames names =
-  putDoc . vcat . map f . reverse . sortOn snd $ Map.toList names
+printBlames names = do
+  let docs =
+        ("Lines", "Author") :
+        (map stringifyCount . reverse . sortOn snd $ Map.toList names)
+  putDoc . vcat . map f $ docs
   where
-    f (author, count) =
-      annotate
-        (color Yellow)
-        (pretty . T.justifyLeft 6 ' ' . T.pack $ show count) <+>
+    f (count, author) =
+      annotate (color Yellow) (pretty count) <+>
       annotate (color Red) (pretty author)
+    stringifyCount (author, count) =
+      (T.justifyLeft 6 ' ' . T.pack $ show count, author)
 
 sc :: Parser ()
 sc = L.space space1 empty empty
