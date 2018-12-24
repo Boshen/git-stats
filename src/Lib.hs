@@ -8,13 +8,15 @@ import           Control.Monad
 import           Data.Either                               (fromRight)
 import           Data.List                                 (concatMap, sortOn)
 import qualified Data.Map.Strict                           as Map
+import           Data.Maybe
 import           Data.Text                                 (Text)
 import qualified Data.Text                                 as T
 import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Render.Terminal
 import           Data.Text.Read                            (decimal)
 import           Data.Void
-import           System.Process
+import           System.Process                            hiding (readCreateProcessWithExitCode)
+import           System.Process.Text                       (readCreateProcessWithExitCode)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer                as L
@@ -48,12 +50,19 @@ countCommits dir =
 
 countLines :: String -> IO (Map.Map Text Author)
 countLines dir = do
-  files <- runCmd dir "git ls-files"
+  files <- T.lines <$> runCmd dir "git ls-files"
   blameFiles <-
     mapConcurrently
-      (\file -> runCmd dir $ "git blame --line-porcelain " ++ T.unpack file)
-      (T.lines files)
-  let blames = concatMap parseBlame blameFiles
+      (\file -> do
+         filetype <- runCmd dir $ "file -b " ++ T.unpack file
+         if filetype == "ASCII text\n"
+           then do
+             blameFile <-
+               runCmd dir $ "git blame --line-porcelain " ++ T.unpack file
+             return $ Just blameFile
+           else return Nothing)
+      files
+  let blames = concatMap parseBlame (catMaybes blameFiles)
       counts = Map.fromListWith (+) $ map (\b -> (author b, 1)) blames
   return $
     Map.map (\count -> Author {authorLines = count, authorCommits = 0}) counts
@@ -69,7 +78,9 @@ mergeAuthors = Map.unionWith f
         }
 
 runCmd :: String -> String -> IO Text
-runCmd dir cmd = T.pack <$> readCreateProcess (shell cmd) {cwd = Just dir} ""
+runCmd dir cmd = do
+  (_, out, _) <- readCreateProcessWithExitCode (shell cmd) {cwd = Just dir} ""
+  return out
 
 parseBlame :: Text -> [Blame]
 parseBlame blame =

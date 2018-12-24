@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - process
+- process-extras
 - megaparsec >= 7
 - containers
 - async
@@ -31,13 +32,31 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -O2
+  - -Wall
+  - -Wcompat
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wredundant-constraints
+  - -Wno-name-shadowing
+  - -Wno-unused-do-bind
+  - -Wno-name-shadowing
 
 executables:
   git-stats-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
+    - -O2
     - -Wall
+    - -Wcompat
+    - -Wincomplete-record-updates
+    - -Wincomplete-uni-patterns
+    - -Wredundant-constraints
+    - -Wno-name-shadowing
+    - -Wno-unused-do-bind
+    - -Wno-name-shadowing
     - -O2
     - -threaded
     - -rtsopts
