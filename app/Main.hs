@@ -6,4 +6,8 @@ import           System.Environment (getArgs)
 main :: IO ()
 main = do
   args <- getArgs
-  countLines $ args !! 1
+  let dir = args !! 1
+  lines <- countLines dir
+  commits <- countCommits dir
+  printLines commits lines
+  putStrLn "\n"

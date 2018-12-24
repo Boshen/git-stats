@@ -5,12 +5,14 @@ module Lib where
 import           Control.Applicative                       (empty)
 import           Control.Concurrent.Async                  (mapConcurrently)
 import           Control.Monad
-import           Data.List                                 (sortOn)
+import           Data.Either                               (fromRight)
+import           Data.List                                 (concatMap, sortOn)
 import qualified Data.Map.Strict                           as Map
 import           Data.Text                                 (Text)
 import qualified Data.Text                                 as T
 import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Render.Terminal
+import           Data.Text.Read                            (decimal)
 import           Data.Void
 import           System.Process
 import           Text.Megaparsec
@@ -27,37 +29,48 @@ data Blame = Blame
 
 type Parser = Parsec Void Text
 
-countLines :: String -> IO ()
-countLines dir = do
-  files <- runCmd "git ls-files"
-  blames <-
-    mapConcurrently
-      (\file -> runCmd $ "git blame --line-porcelain " ++ file)
-      (Prelude.lines files)
-  let names = Map.unionsWith (+) (map (parseBlame . T.pack) blames)
-  printBlames names
-  putStrLn "\n"
+countCommits :: String -> IO (Map.Map Text Integer)
+countCommits dir =
+  Map.fromList . map (f . T.words) . T.lines <$>
+  runCmd dir "git shortlog -sn HEAD"
   where
-    runCmd cmd = readCreateProcess (shell cmd) {cwd = Just dir} ""
+    f lines =
+      ( T.unwords $ tail lines
+      , fst . fromRight (0, "0") . decimal . head $ lines)
 
-parseBlame :: Text -> Map.Map Text Integer
+countLines :: String -> IO (Map.Map Text Integer)
+countLines dir = do
+  files <- runCmd dir "git ls-files"
+  blameFiles <-
+    mapConcurrently
+      (\file -> runCmd dir $ "git blame --line-porcelain " ++ T.unpack file)
+      (T.lines files)
+  let blames = concatMap parseBlame blameFiles
+      counts = Map.fromListWith (+) $ map (\b -> (author b, 1)) blames
+  return counts
+
+runCmd :: String -> String -> IO Text
+runCmd dir cmd = T.pack <$> readCreateProcess (shell cmd) {cwd = Just dir} ""
+
+parseBlame :: Text -> [Blame]
 parseBlame blame =
   case parse (many blameParser) "" blame of
-    Left e       -> Map.empty -- TODO error handling
-    Right blames -> Map.fromListWith (+) (map (\b -> (author b, 1)) blames)
+    Left e       -> [] -- TODO error handling
+    Right blames -> blames
 
-printBlames :: Map.Map Text Integer -> IO ()
-printBlames names = do
+printLines :: Map.Map Text Integer -> Map.Map Text Integer -> IO ()
+printLines commits lines = do
   let docs =
-        ("Lines", "Author") :
-        (map stringifyCount . reverse . sortOn snd $ Map.toList names)
+        ("Lines", "Commits", "Author") :
+        (map stringifyCount . reverse . sortOn snd $ Map.toList commits)
   putDoc . vcat . map f $ docs
   where
-    f (count, author) =
-      annotate (color Yellow) (pretty count) <+>
+    f (count, commit, author) =
+      annotate (color Yellow) (pretty $ T.justifyRight 6 ' ' count) <+>
+      annotate (color Blue) (pretty $ T.justifyRight 6 ' ' commit) <+>
       annotate (color Red) (pretty author)
-    stringifyCount (author, count) =
-      (T.justifyLeft 6 ' ' . T.pack $ show count, author)
+    stringifyCount (author, commit) =
+      (T.pack . show $ (Map.!) lines author, T.pack . show $ commit, author)
 
 sc :: Parser ()
 sc = L.space space1 empty empty
