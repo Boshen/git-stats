@@ -27,18 +27,26 @@ data Blame = Blame
   , filename     :: Text
   } deriving (Show)
 
+data Author = Author
+  { authorLines   :: Int
+  , authorCommits :: Int
+  } deriving (Show)
+
 type Parser = Parsec Void Text
 
-countCommits :: String -> IO (Map.Map Text Integer)
+countCommits :: String -> IO (Map.Map Text Author)
 countCommits dir =
   Map.fromList . map (f . T.words) . T.lines <$>
   runCmd dir "git shortlog -sn HEAD"
   where
-    f lines =
-      ( T.unwords $ tail lines
-      , fst . fromRight (0, "0") . decimal . head $ lines)
+    f (count:names) =
+      ( T.unwords names
+      , Author
+          { authorLines = 0
+          , authorCommits = fst . fromRight (0, "0") . decimal $ count
+          })
 
-countLines :: String -> IO (Map.Map Text Integer)
+countLines :: String -> IO (Map.Map Text Author)
 countLines dir = do
   files <- runCmd dir "git ls-files"
   blameFiles <-
@@ -47,7 +55,18 @@ countLines dir = do
       (T.lines files)
   let blames = concatMap parseBlame blameFiles
       counts = Map.fromListWith (+) $ map (\b -> (author b, 1)) blames
-  return counts
+  return $
+    Map.map (\count -> Author {authorLines = count, authorCommits = 0}) counts
+
+mergeAuthors ::
+     Map.Map Text Author -> Map.Map Text Author -> Map.Map Text Author
+mergeAuthors = Map.unionWith f
+  where
+    f a b =
+      Author
+        { authorLines = authorLines a + authorLines b
+        , authorCommits = authorCommits a + authorCommits b
+        }
 
 runCmd :: String -> String -> IO Text
 runCmd dir cmd = T.pack <$> readCreateProcess (shell cmd) {cwd = Just dir} ""
@@ -58,19 +77,17 @@ parseBlame blame =
     Left e       -> [] -- TODO error handling
     Right blames -> blames
 
-printLines :: Map.Map Text Integer -> Map.Map Text Integer -> IO ()
-printLines commits lines = do
-  let docs =
-        ("Lines", "Commits", "Author") :
-        (map stringifyCount . reverse . sortOn snd $ Map.toList commits)
-  putDoc . vcat . map f $ docs
+printLines :: Map.Map Text Author -> IO ()
+printLines authors = do
+  let docs = map f . reverse . sortOn (authorLines . snd) $ Map.toList authors
+  putDoc . vcat . map g $ ("Lines", "Commits", "Author") : docs
   where
-    f (count, commit, author) =
-      annotate (color Yellow) (pretty $ T.justifyRight 6 ' ' count) <+>
-      annotate (color Blue) (pretty $ T.justifyRight 6 ' ' commit) <+>
+    f (author, Author authorLines authorCommits) =
+      (T.pack . show $ authorLines, T.pack . show $ authorCommits, author)
+    g (lines, commits, author) =
+      annotate (color Yellow) (pretty . T.justifyRight 6 ' ' $ lines) <+>
+      annotate (color Blue) (pretty . T.justifyRight 6 ' ' $ commits) <+>
       annotate (color Red) (pretty author)
-    stringifyCount (author, commit) =
-      (T.pack . show $ (Map.!) lines author, T.pack . show $ commit, author)
 
 sc :: Parser ()
 sc = L.space space1 empty empty

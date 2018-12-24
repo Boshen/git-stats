@@ -9,5 +9,6 @@ main = do
   let dir = args !! 1
   lines <- countLines dir
   commits <- countCommits dir
-  printLines commits lines
+  let authors = mergeAuthors lines commits
+  printLines authors
   putStrLn "\n"
