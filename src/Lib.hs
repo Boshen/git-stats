@@ -5,8 +5,10 @@ module Lib where
 import           Control.Applicative                       (empty)
 import           Control.Concurrent.Async                  (mapConcurrently)
 import           Control.Monad
+import           Control.Parallel.Strategies               (parList, rseq,
+                                                            using)
 import           Data.Either                               (fromRight)
-import           Data.List                                 (concatMap, sortOn)
+import           Data.List                                 (sortOn)
 import qualified Data.Map.Strict                           as Map
 import           Data.Maybe
 import           Data.Text                                 (Text)
@@ -36,6 +38,9 @@ data Author = Author
 
 type Parser = Parsec Void Text
 
+defaultAuthor :: Author
+defaultAuthor = Author 0 0
+
 countCommits :: String -> IO (Map.Map Text Author)
 countCommits dir =
   Map.fromList . map (f . T.words) . T.lines <$>
@@ -43,10 +48,8 @@ countCommits dir =
   where
     f (count:names) =
       ( T.unwords names
-      , Author
-          { authorLines = 0
-          , authorCommits = fst . fromRight (0, "0") . decimal $ count
-          })
+      , defaultAuthor
+          {authorCommits = fst . fromRight (0, "0") . decimal $ count})
     f _ = error "git shortlog is not giving the correct result"
 
 countLines :: String -> IO (Map.Map Text Author)
@@ -63,10 +66,9 @@ countLines dir = do
              return $ Just blameFile
            else return Nothing)
       files
-  let blames = concatMap parseBlame (catMaybes blameFiles)
+  let blames = concat (parseBlame <$> catMaybes blameFiles `using` parList rseq)
       counts = Map.fromListWith (+) $ map (\b -> (author b, 1)) blames
-  return $
-    Map.map (\count -> Author {authorLines = count, authorCommits = 0}) counts
+  return $ Map.map (\count -> defaultAuthor {authorLines = count}) counts
 
 mergeAuthors ::
      Map.Map Text Author -> Map.Map Text Author -> Map.Map Text Author

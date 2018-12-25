@@ -29,6 +29,7 @@ dependencies:
 - text
 - prettyprinter
 - prettyprinter-ansi-terminal
+- parallel
 
 library:
   source-dirs: src
