@@ -9,8 +9,10 @@ import           Control.Parallel.Strategies               (parList, rseq,
                                                             using)
 import           Data.Either                               (fromRight)
 import           Data.List                                 (sortOn)
+import           Data.Map.Strict                           (Map)
 import qualified Data.Map.Strict                           as Map
 import           Data.Maybe
+import qualified Data.Set                                  as Set
 import           Data.Text                                 (Text)
 import qualified Data.Text                                 as T
 import           Data.Text.Prettyprint.Doc
@@ -34,14 +36,15 @@ data Blame = Blame
 data Author = Author
   { authorLines   :: Int
   , authorCommits :: Int
+  , authorFiles   :: Int
   } deriving (Show)
 
 type Parser = Parsec Void Text
 
 defaultAuthor :: Author
-defaultAuthor = Author 0 0
+defaultAuthor = Author 0 0 0
 
-countCommits :: String -> IO (Map.Map Text Author)
+countCommits :: String -> IO (Map Text Author)
 countCommits dir =
   Map.fromList . map (f . T.words) . T.lines <$>
   runCmd dir "git shortlog -sn HEAD"
@@ -52,7 +55,7 @@ countCommits dir =
           {authorCommits = fst . fromRight (0, "0") . decimal $ count})
     f _ = error "git shortlog is not giving the correct result"
 
-countLines :: String -> IO (Map.Map Text Author)
+countLines :: String -> IO (Map Text Author)
 countLines dir = do
   files <- T.lines <$> runCmd dir "git ls-files"
   blameFiles <-
@@ -67,17 +70,23 @@ countLines dir = do
            else return Nothing)
       files
   let blames = concat (parseBlame <$> catMaybes blameFiles `using` parList rseq)
-      counts = Map.fromListWith (+) $ map (\b -> (author b, 1)) blames
-  return $ Map.map (\count -> defaultAuthor {authorLines = count}) counts
+      counts =
+        Map.fromListWith (\a b -> (fst a + fst b, Set.union (snd a) (snd b))) $
+        map (\b -> (author b, (1, Set.singleton $ filename b))) blames
+  return $
+    Map.map
+      (\(count, fileSet) ->
+         defaultAuthor {authorLines = count, authorFiles = Set.size fileSet})
+      counts
 
-mergeAuthors ::
-     Map.Map Text Author -> Map.Map Text Author -> Map.Map Text Author
+mergeAuthors :: Map Text Author -> Map Text Author -> Map Text Author
 mergeAuthors = Map.unionWith f
   where
     f a b =
       Author
         { authorLines = authorLines a + authorLines b
         , authorCommits = authorCommits a + authorCommits b
+        , authorFiles = authorFiles a + authorFiles b
         }
 
 runCmd :: String -> String -> IO Text
@@ -91,16 +100,20 @@ parseBlame blame =
     Left _       -> [] -- TODO error handling
     Right blames -> blames
 
-printLines :: Map.Map Text Author -> IO ()
+printLines :: Map Text Author -> IO ()
 printLines authors = do
   let docs = map f . reverse . sortOn (authorLines . snd) $ Map.toList authors
-  putDoc . vcat . map g $ ("Lines", "Commits", "Author") : docs
+  putDoc . vcat . map g $ ("Lines", "Commits", "Files", "Author") : docs
   where
-    f (author, Author authorLines authorCommits) =
-      (T.pack . show $ authorLines, T.pack . show $ authorCommits, author)
-    g (lines, commits, author) =
+    f (author, Author authorLines authorCommits authorFiles) =
+      ( T.pack . show $ authorLines
+      , T.pack . show $ authorCommits
+      , T.pack . show $ authorFiles
+      , author)
+    g (lines, commits, files, author) =
       annotate (color Yellow) (pretty . T.justifyRight 6 ' ' $ lines) <+>
-      annotate (color Blue) (pretty . T.justifyRight 6 ' ' $ commits) <+>
+      annotate (color Cyan) (pretty . T.justifyRight 6 ' ' $ commits) <+>
+      annotate (color Blue) (pretty . T.justifyRight 6 ' ' $ files) <+>
       annotate (color Red) (pretty author)
 
 sc :: Parser ()
