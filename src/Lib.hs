@@ -5,21 +5,21 @@ module Lib where
 
 import           Control.Applicative                       (empty)
 import           Control.Concurrent.Async                  (mapConcurrently)
-import           Control.Monad
+import           Control.Monad                             (replicateM)
 import           Control.Parallel.Strategies               (parList, rseq,
                                                             using)
 import           Data.Either                               (fromRight)
 import           Data.List                                 (sortOn)
 import           Data.Map.Strict                           (Map)
 import qualified Data.Map.Strict                           as Map
-import           Data.Maybe
+import           Data.Maybe                                (catMaybes)
 import qualified Data.Set                                  as Set
 import           Data.Text                                 (Text)
 import qualified Data.Text                                 as T
 import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Render.Terminal
 import           Data.Text.Read                            (decimal)
-import           Data.Void
+import           Data.Void                                 (Void)
 import           System.Process                            hiding (readCreateProcessWithExitCode)
 import           System.Process.Text                       (readCreateProcessWithExitCode)
 import           Text.Megaparsec
