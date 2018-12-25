@@ -60,34 +60,22 @@ instance Monoid Author where
   mempty = defaultAuthor
 
 countCommits :: String -> IO (Map Text Author)
-countCommits dir =
-  Map.fromList . map (f . T.words) . T.lines <$>
-  runCmd dir "git shortlog -s HEAD"
+countCommits dir = Map.fromList . map (f . T.words) . T.lines <$> runCmd dir "git shortlog -s HEAD"
   where
-    f (count:names) =
-      (T.unwords names, defaultAuthor {authorCommits = textToInt count})
+    f (count:names) = (T.unwords names, defaultAuthor {authorCommits = textToInt count})
     f _ = error "git shortlog is not giving the correct result"
 
 countChanges :: String -> IO (Map Text Author)
 countChanges dir = do
-  authors <-
-    map (T.unwords . tail . T.words) . T.lines <$>
-    runCmd dir "git shortlog -s HEAD"
+  authors <- map (T.unwords . tail . T.words) . T.lines <$> runCmd dir "git shortlog -s HEAD"
   logs <-
     flip mapConcurrently authors $ \author -> do
-      log <-
-        runCmd dir $
-        "git log --pretty=tformat: --numstat --author=\"" ++
-        T.unpack author ++ "\""
+      log <- runCmd dir $ "git log --pretty=tformat: --numstat --author=\"" ++ T.unpack author ++ "\""
       return $ map (f author . T.words) . T.lines $ log
   return $ Map.fromListWith mappend $ concat logs
   where
     f author (addition:deletion:_) =
-      ( author
-      , defaultAuthor
-          { authorAdditions = textToInt addition
-          , authorDeletions = textToInt deletion
-          })
+      (author, defaultAuthor {authorAdditions = textToInt addition, authorDeletions = textToInt deletion})
     f _ _ = error "git log error"
 
 countLines :: String -> IO (Map Text Author)
@@ -99,8 +87,7 @@ countLines dir = do
          filetype <- runCmd dir $ "file -b -I " ++ T.unpack file
          if fst (T.breakOn ";" filetype) == "text/plain"
            then do
-             blameFile <-
-               runCmd dir $ "git blame --line-porcelain " ++ T.unpack file
+             blameFile <- runCmd dir $ "git blame --line-porcelain " ++ T.unpack file
              return $ Just blameFile
            else return Nothing)
       files
@@ -108,11 +95,7 @@ countLines dir = do
       counts =
         Map.fromListWith (\a b -> (fst a + fst b, Set.union (snd a) (snd b))) $
         map (\b -> (author b, (1, Set.singleton $ filename b))) blames
-  return $
-    Map.map
-      (\(count, fileSet) ->
-         defaultAuthor {authorLines = count, authorFiles = Set.size fileSet})
-      counts
+  return $ Map.map (\(count, fileSet) -> defaultAuthor {authorLines = count, authorFiles = Set.size fileSet}) counts
 
 mergeAuthors :: [Map Text Author] -> Map Text Author
 mergeAuthors = Map.unionsWith mappend
@@ -131,22 +114,15 @@ parseBlame blame =
 printLines :: Map Text Author -> IO ()
 printLines authors = do
   let docs = map f . reverse . sortOn (authorLines . snd) $ Map.toList authors
-  putDoc . vcat . map g $
-    ("Lines", "Adds", "Dels", "Commits", "Files", "Author") : docs
+  putDoc . vcat . map g $ ("Lines", "Adds", "Dels", "Commits", "Files", "Author") : docs
   where
     f (author, Author authorLines authorCommits authorFiles authorAdditions authorDeletions) =
-      ( ss authorLines
-      , ss authorAdditions
-      , ss authorDeletions
-      , ss authorCommits
-      , ss authorFiles
-      , author)
+      (ss authorLines, ss authorAdditions, ss authorDeletions, ss authorCommits, ss authorFiles, author)
     g (lines, additions, deletions, commits, files, author) =
       annotate (color Yellow) (pp lines) <+>
       annotate (color Yellow) (pp additions) <+>
       annotate (color Yellow) (pp deletions) <+>
-      annotate (color Cyan) (pp commits) <+>
-      annotate (color Blue) (pp files) <+> annotate (color Red) (pretty author)
+      annotate (color Cyan) (pp commits) <+> annotate (color Blue) (pp files) <+> annotate (color Red) (pretty author)
     ss = T.pack . show
     pp = pretty . T.justifyRight 8 ' '
 
@@ -199,13 +175,7 @@ blameParser
   tab
   lexeme $ takeWhileP Nothing (/= '\n')
   return $
-    Blame
-      { sha = T.pack sha
-      , originalLine = originalLine
-      , finalLine = finalLine
-      , author = author
-      , filename = filename
-      }
+    Blame {sha = T.pack sha, originalLine = originalLine, finalLine = finalLine, author = author, filename = filename}
 
 textToInt :: Text -> Int
 textToInt = fst . fromRight (0, "0") . decimal
