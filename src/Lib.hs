@@ -54,8 +54,8 @@ countLines dir = do
   blameFiles <-
     mapConcurrently
       (\file -> do
-         filetype <- runCmd dir $ "file -b " ++ T.unpack file
-         if filetype == "ASCII text\n"
+         filetype <- runCmd dir $ "file -b -I " ++ T.unpack file
+         if fst (T.breakOn ";" filetype) == "text/plain"
            then do
              blameFile <-
                runCmd dir $ "git blame --line-porcelain " ++ T.unpack file
