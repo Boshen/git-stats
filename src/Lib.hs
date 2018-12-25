@@ -44,6 +44,17 @@ type Parser = Parsec Void Text
 defaultAuthor :: Author
 defaultAuthor = Author 0 0 0
 
+instance Semigroup Author where
+  a <> b =
+    Author
+      { authorLines = authorLines a + authorLines b
+      , authorCommits = authorCommits a + authorCommits b
+      , authorFiles = authorFiles a + authorFiles b
+      }
+
+instance Monoid Author where
+  mempty = defaultAuthor
+
 countCommits :: String -> IO (Map Text Author)
 countCommits dir =
   Map.fromList . map (f . T.words) . T.lines <$>
@@ -80,14 +91,7 @@ countLines dir = do
       counts
 
 mergeAuthors :: Map Text Author -> Map Text Author -> Map Text Author
-mergeAuthors = Map.unionWith f
-  where
-    f a b =
-      Author
-        { authorLines = authorLines a + authorLines b
-        , authorCommits = authorCommits a + authorCommits b
-        , authorFiles = authorFiles a + authorFiles b
-        }
+mergeAuthors = Map.unionWith mappend
 
 runCmd :: String -> String -> IO Text
 runCmd dir cmd = do
@@ -106,15 +110,13 @@ printLines authors = do
   putDoc . vcat . map g $ ("Lines", "Commits", "Files", "Author") : docs
   where
     f (author, Author authorLines authorCommits authorFiles) =
-      ( T.pack . show $ authorLines
-      , T.pack . show $ authorCommits
-      , T.pack . show $ authorFiles
-      , author)
+      (ss authorLines, ss authorCommits, ss authorFiles, author)
     g (lines, commits, files, author) =
-      annotate (color Yellow) (pretty . T.justifyRight 6 ' ' $ lines) <+>
-      annotate (color Cyan) (pretty . T.justifyRight 6 ' ' $ commits) <+>
-      annotate (color Blue) (pretty . T.justifyRight 6 ' ' $ files) <+>
-      annotate (color Red) (pretty author)
+      annotate (color Yellow) (pp lines) <+>
+      annotate (color Cyan) (pp commits) <+>
+      annotate (color Blue) (pp files) <+> annotate (color Red) (pretty author)
+    ss = T.pack . show
+    pp = pretty . T.justifyRight 6 ' '
 
 sc :: Parser ()
 sc = L.space space1 empty empty
