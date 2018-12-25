@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Lib where
 
@@ -69,9 +70,9 @@ countChanges :: String -> IO (Map Text Author)
 countChanges dir = do
   authors <- map (T.unwords . tail . T.words) . T.lines <$> runCmd dir "git shortlog -s HEAD"
   logs <-
-    flip mapConcurrently authors $ \author -> do
-      log <- runCmd dir $ "git log --pretty=tformat: --numstat --author=\"" ++ T.unpack author ++ "\""
-      return $ map (f author . T.words) . T.lines $ log
+    flip mapConcurrently authors $ \author ->
+      map (f author . T.words) . T.lines <$>
+      runCmd dir ("git log --pretty=tformat: --numstat --author=\"" ++ T.unpack author ++ "\"")
   return $ Map.fromListWith mappend $ concat logs
   where
     f author (addition:deletion:_) =
@@ -82,19 +83,16 @@ countLines :: String -> IO (Map Text Author)
 countLines dir = do
   files <- T.lines <$> runCmd dir "git ls-files"
   blameFiles <-
-    mapConcurrently
-      (\file -> do
-         filetype <- runCmd dir $ "file -b -I " ++ T.unpack file
-         if fst (T.breakOn ";" filetype) == "text/plain"
-           then do
-             blameFile <- runCmd dir $ "git blame --line-porcelain " ++ T.unpack file
-             return $ Just blameFile
-           else return Nothing)
-      files
+    flip mapConcurrently files $ \file -> do
+      filetype <- runCmd dir ("file -b -I " ++ T.unpack file)
+      if fst (T.breakOn ";" filetype) == "text/plain" -- ignore non-text files, e.g. binary files
+        then Just <$> runCmd dir ("git blame --line-porcelain " ++ T.unpack file)
+        else return Nothing
   let blames = concat (parseBlame <$> catMaybes blameFiles `using` parList rseq)
       counts =
-        Map.fromListWith (\a b -> (fst a + fst b, Set.union (snd a) (snd b))) $
-        map (\b -> (author b, (1, Set.singleton $ filename b))) blames
+        Map.fromListWith
+          (\a b -> (fst a + fst b, Set.union (snd a) (snd b)))
+          (map (\b -> (author b, (1, Set.singleton $ filename b))) blames)
   return $ Map.map (\(count, fileSet) -> defaultAuthor {authorLines = count, authorFiles = Set.size fileSet}) counts
 
 mergeAuthors :: [Map Text Author] -> Map Text Author
@@ -106,17 +104,15 @@ runCmd dir cmd = do
   return out
 
 parseBlame :: Text -> [Blame]
-parseBlame blame =
-  case parse (many blameParser) "" blame of
-    Left _       -> [] -- TODO error handling
-    Right blames -> blames
+parseBlame blame = either (const []) id (parse (many blameParser) "" blame)
 
 printLines :: Map Text Author -> IO ()
 printLines authors = do
-  let docs = map f . reverse . sortOn (authorLines . snd) $ Map.toList authors
-  putDoc . vcat . map g $ ("Lines", "Adds", "Dels", "Commits", "Files", "Author") : docs
+  let title = ("Lines", "Adds", "Dels", "Commits", "Files", "Author")
+      docs = title : (map f . sortOn (negate . authorLines . snd) $ Map.toList authors)
+  putDoc . vcat . map g $ docs
   where
-    f (author, Author authorLines authorCommits authorFiles authorAdditions authorDeletions) =
+    f (author, Author {..}) =
       (ss authorLines, ss authorAdditions, ss authorDeletions, ss authorCommits, ss authorFiles, author)
     g (lines, additions, deletions, commits, files, author) =
       annotate (color Yellow) (pp lines) <+>
