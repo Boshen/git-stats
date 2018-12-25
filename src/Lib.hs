@@ -47,6 +47,7 @@ countCommits dir =
           { authorLines = 0
           , authorCommits = fst . fromRight (0, "0") . decimal $ count
           })
+    f _ = error "git shortlog is not giving the correct result"
 
 countLines :: String -> IO (Map.Map Text Author)
 countLines dir = do
@@ -85,7 +86,7 @@ runCmd dir cmd = do
 parseBlame :: Text -> [Blame]
 parseBlame blame =
   case parse (many blameParser) "" blame of
-    Left e       -> [] -- TODO error handling
+    Left _       -> [] -- TODO error handling
     Right blames -> blames
 
 printLines :: Map.Map Text Author -> IO ()
@@ -106,10 +107,13 @@ sc = L.space space1 empty empty
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
+integer :: Parser Int
 integer = lexeme L.decimal
 
+str :: Text -> Parser Text
 str = lexeme . string
 
+takeAll :: Parser Text
 takeAll = lexeme $ takeWhile1P Nothing (/= '\n')
 
 blameParser :: Parser Blame
@@ -144,7 +148,7 @@ blameParser
   newline
   -- The contents of the actual line is output after the above header, prefixed by a TAB. This is to allow adding more header elements later.
   tab
-  line <- lexeme $ takeWhileP Nothing (/= '\n')
+  lexeme $ takeWhileP Nothing (/= '\n')
   return $
     Blame
       { sha = T.pack sha
